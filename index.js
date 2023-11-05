@@ -1,9 +1,10 @@
 const express = require('express');
-const cors = require('cors');
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-require('dotenv').config();
-
 const app = express();
+const cors = require('cors');
+const jwt = require('jsonwebtoken');
+require('dotenv').config();
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const stripe = require('stripe')(process.env.PAYMENT_SECRET_KEY)
 const port = process.env.PORT || 5000;
 
 
@@ -28,9 +29,9 @@ const verifyJWT = (req, res, next) => {
     })
 }
 
-
+// console.log(process.env.DB_USER);
+// console.log(process.env.DB_PASS);
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.em5b5wh.mongodb.net/?retryWrites=true&w=majority`;
-
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -44,14 +45,11 @@ const client = new MongoClient(uri, {
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        // client.connect();
-
-        const userCollection = client.db("SunBurst").collection("users");
+        // await client.connect();
+        const usersCollection = client.db("SunBurst").collection("users");
         const classCollection = client.db("SunBurst").collection("class");
         const selectedClassCollection = client.db("SunBurst").collection("selectedClass");
         const paymentCollection = client.db("SunBurst").collection("payment");
-
-
         //create jwt token
         // done
         app.post('/jwt-token', (req, res) => {
@@ -66,20 +64,20 @@ async function run() {
         app.post('/users', async (req, res) => {
             const user = req.body;
             const query = { email: user.email }
-            const existingUser = await userCollection.findOne(query);
+            const existingUser = await usersCollection.findOne(query);
 
             if (existingUser) {
                 return res.send({ message: 'user already exists' })
             }
 
-            const result = await userCollection.insertOne(user);
+            const result = await usersCollection.insertOne(user);
             res.send(result);
         });
 
         const verifyAdmin = async (req, res, next) => {
             const email = req.decoded.email;
             const query = { email: email }
-            const user = await userCollection.findOne(query);
+            const user = await usersCollection.findOne(query);
             if (user?.role !== 'admin') {
                 return res.status(403).send({ error: true, message: 'forbidden message' });
             }
@@ -87,10 +85,18 @@ async function run() {
         }
 
         // display all users on admin page
-        // verifyJWT, verifyAdmin,
         // done
-        app.get('/users', async (req, res) => {
-            const result = await userCollection.find().toArray();
+        // verifyAdmin, verifyJWT,
+        app.get('/users', verifyJWT, async (req, res) => {
+            const result = await usersCollection.find().toArray();
+            res.send(result)
+        })
+
+        // user delete by admin
+        app.delete('/users/:id', verifyJWT, async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const result = await usersCollection.deleteOne(query)
             res.send(result)
         })
 
@@ -102,7 +108,7 @@ async function run() {
 
 
             const query = { email: email };
-            const user = await userCollection.findOne(query);
+            const user = await usersCollection.findOne(query);
             const result = { instructor: user?.role === 'instructor' };
             res.send(result);
         })
@@ -115,7 +121,7 @@ async function run() {
 
 
             const query = { email: email };
-            const user = await userCollection.findOne(query);
+            const user = await usersCollection.findOne(query);
             const result = { admin: user?.role === 'admin' };
             res.send(result);
         })
@@ -127,7 +133,7 @@ async function run() {
 
 
             const query = { email: email };
-            const user = await userCollection.findOne(query);
+            const user = await usersCollection.findOne(query);
             const result = { student: user?.role === 'student' };
             res.send(result);
         })
@@ -144,7 +150,7 @@ async function run() {
                 },
             };
 
-            const result = await userCollection.updateOne(filter, updateDoc);
+            const result = await usersCollection.updateOne(filter, updateDoc);
             res.send(result);
 
         })
@@ -159,7 +165,7 @@ async function run() {
                     role: "instructor"
                 },
             }
-            const result = await userCollection.updateOne(filter, updatedDoc);
+            const result = await usersCollection.updateOne(filter, updatedDoc);
             res.send(result)
         })
 
@@ -206,7 +212,7 @@ async function run() {
         // done
         app.get('/populerInstructor', async (req, res) => {
             const query = { role: "instructor" }
-            const result = await userCollection.find(query).limit(6).toArray();
+            const result = await usersCollection.find(query).limit(6).toArray();
             res.send(result)
         })
 
@@ -275,7 +281,7 @@ async function run() {
         // display  instructor on instructor page
         app.get('/instructor', async (req, res) => {
             const query = { role: 'instructor' };
-            const instructor = await userCollection.find(query).toArray();
+            const instructor = await usersCollection.find(query).toArray();
             res.send(instructor)
         })
 
@@ -385,7 +391,6 @@ async function run() {
         })
 
 
-
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
@@ -397,8 +402,11 @@ async function run() {
 run().catch(console.dir);
 
 
-app.get('/', async (req, res) => {
-    res.send('SunBurst is running');
+
+app.get('/', (req, res) => {
+    res.send('SunBurst server is running authorized by RoBiN')
 })
 
-app.listen(port, () => console.log(`SunBurst is running on ${port}`))
+app.listen(port, () => {
+    console.log(`SunBurst server is running on port ${port}`);
+})
